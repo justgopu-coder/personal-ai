@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GOPU AI</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: flex; align-items: center;
+  justify-content: center; background: radial-gradient(circle, #102e49, #02050b 75%);
+  color: #71efff; font-family: Arial, sans-serif; text-align: center; padding: 20px;
+}
+.app { width: 100%; max-width: 650px; }
+h1 { letter-spacing: 12px; text-shadow: 0 0 20px #00d9ff; margin-bottom: 8px; }
+.subtitle { letter-spacing: 3px; font-size: 12px; color: #a3f8ff; }
+.circle {
+  width: 150px; height: 150px; margin: 25px auto;
+  border: 3px solid #00d9ff; border-radius: 50%; display: grid; place-items: center;
+  box-shadow: 0 0 30px #008cff, inset 0 0 25px #008cff; animation: glow 2s infinite alternate;
+}
+.core { width: 55px; height: 55px; border-radius: 50%; background: #a3f8ff; box-shadow: 0 0 35px #00d9ff; }
+@keyframes glow { to { box-shadow: 0 0 45px #00d9ff, inset 0 0 30px #008cff; } }
+#reply { min-height: 28px; line-height: 1.5; color: #d6fbff; }
+.chat {
+  margin: 20px auto 14px; padding: 12px; border: 1px solid #087ea2;
+  border-radius: 12px; background: rgba(2, 14, 25, .78); text-align: left;
+}
+#messages { height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+.msg { max-width: 90%; padding: 10px 12px; border-radius: 10px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.msg.user { align-self: flex-end; color: #e9fcff; background: #07506c; }
+.msg.assistant { align-self: flex-start; color: #c7faff; background: #09283a; border: 1px solid #12465b; }
+.controls { display: flex; gap: 8px; margin-top: 10px; }
+input {
+  min-width: 0; flex: 1; background: #03121e; color: #e3fbff;
+  border: 1px solid #087ea2; border-radius: 8px; padding: 12px; font-size: 15px; outline: none;
+}
+button {
+  background: #082337; border: 1px solid #00d9ff; color: #a3f8ff;
+  padding: 11px 15px; border-radius: 8px; cursor: pointer; font-size: 14px;
+}
+button:hover { background: #10415b; }
+button:disabled { opacity: .5; cursor: wait; }
+.small { font-size: 12px; color: #81cbd8; margin-top: 10px; }
+#status { color: #81cbd8; font-size: 12px; min-height: 16px; margin-top: 8px; }
+@media (max-width: 480px) {
+  body { padding: 12px; }
+  h1 { letter-spacing: 8px; }
+  .circle { width: 125px; height: 125px; }
+  #messages { height: 200px; }
+  button { padding: 10px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>G.O.P.U</h1>
+  <p class="subtitle">YOUR PERSONAL AI ASSISTANT</p>
+
+  <div class="circle"><div class="core"></div></div>
+
+  <p id="reply">Hello Gopal! I am GOPU. How can I help you?</p>
+
+  <section class="chat">
+    <div id="messages" aria-live="polite">
+      <div class="msg assistant">Hello Gopal! I am GOPU. You can type or use the microphone.</div>
+    </div>
+    <form id="chatForm" class="controls">
+      <input id="question" type="text" placeholder="Ask GOPU anything..." autocomplete="off" aria-label="Message for GOPU">
+      <button id="sendButton" type="submit">Send</button>
+    </form>
+    <div class="controls">
+      <button id="micButton" type="button">🎙 Talk</button>
+      <button id="wakeButton" type="button">🔊 Enable Hey Gopu</button>
+      <button id="clearButton" type="button">Clear Chat</button>
+    </div>
+    <div id="status">Ready</div>
+  </section>
+  <p class="small">Voice commands: “Open YouTube” or “Open Google”.</p>
+</div>
+
+<script>
+const messagesEl = document.getElementById("messages");
+const questionEl = document.getElementById("question");
+const chatForm = document.getElementById("chatForm");
+const sendButton = document.getElementById("sendButton");
+const micButton = document.getElementById("micButton");
+const clearButton = document.getElementById("clearButton");
+const replyEl = document.getElementById("reply");
+const statusEl = document.getElementById("status");
+
+let busy = false;
+let conversationHistory = [];
+const HISTORY_KEY = "gopuConversationHistoryV1";
+
+try {
+  const saved = localStorage.getItem(HISTORY_KEY);
+  if (saved) {
+    const parsed = JSON.parse(saved);
+    if (Array.isArray(parsed)) {
+      conversationHistory = parsed.filter(item =>
+        item && ["user", "assistant"].includes(item.role) &&
+        typeof item.content === "string"
+      ).slice(-20);
+      renderHistory();
+    }
+  }
+} catch (error) {
+  console.warn("Could not load saved GOPU history:", error);
+}
+
+function saveHistory() {
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(conversationHistory.slice(-20)));
+  } catch (error) {
+    console.warn("Could not save GOPU history:", error);
+  }
+}
+
+function renderHistory() {
+  messagesEl.innerHTML = "";
+  if (!conversationHistory.length) {
+    addBubble("assistant", "Hello Gopal! I am GOPU. You can type or use the microphone.", false);
+    return;
+  }
+  conversationHistory.forEach(item => addBubble(item.role, item.content, false));
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function addBubble(role, content, save = true) {
+  const bubble = document.createElement("div");
+  bubble.className = "msg " + (role === "user" ? "user" : "assistant");
+  bubble.textContent = content;
+  messagesEl.appendChild(bubble);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  if (save) {
+    conversationHistory.push({ role, content });
+    conversationHistory = conversationHistory.slice(-20);
+    saveHistory();
+  }
+}
+
+function speak(message) {
+  replyEl.textContent = message;
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const voice = new SpeechSynthesisUtterance(message);
+  voice.lang = "en-IN";
+  voice.rate = 0.95;
+  const voices = window.speechSynthesis.getVoices();
+  const englishVoice = voices.find(v => /^en-IN$/i.test(v.lang))
+    || voices.find(v => /^en-US$/i.test(v.lang))
+    || voices.find(v => /^en-GB$/i.test(v.lang))
+    || voices.find(v => /^en/i.test(v.lang));
+  if (englishVoice) voice.voice = englishVoice;
+  window.speechSynthesis.speak(voice);
+}
+
+function handleSmartCommand(command) {
+  const text = command.toLowerCase().trim();
+
+  const websites = [
+    { words: ["youtube"], url: "https://www.youtube.com", name: "YouTube" },
+    { words: ["google"], url: "https://www.google.com", name: "Google" },
+    { words: ["instagram"], url: "https://www.instagram.com", name: "Instagram" },
+    { words: ["whatsapp"], url: "https://web.whatsapp.com", name: "WhatsApp Web" }
+  ];
+
+  const wantsToOpen = /\b(open|launch|go to|kholo|khol do)\b/.test(text);
+
+  if (wantsToOpen) {
+    const site = websites.find(item =>
+      item.words.some(word => text.includes(word))
+    );
+
+    if (site) {
+      const tab = window.open(site.url, "_blank");
+
+      const message = tab
+        ? "Opening " + site.name + ", Gopal."
+        : "Please allow popups to open " + site.name + ".";
+
+      speak(message);
+      statusEl.textContent = message;
+      return true;
+    }
+  }
+
+  if (
+    text.includes("what time") ||
+    text.includes("time is it") ||
+    text.includes("samay") ||
+    text.includes("kitne baje")
+  ) {
+    const time = new Date().toLocaleTimeString("en-IN", {
+      hour: "numeric",
+      minute: "2-digit"
+    });
+
+    speak("Gopal, the time is " + time + ".");
+    statusEl.textContent = "Time command completed.";
+    return true;
+  }
+
+  if (
+    text.includes("today's date") ||
+    text.includes("what is the date") ||
+    text.includes("tarikh")
+  ) {
+    const date = new Date().toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "long",
+      year: "numeric"
+    });
+
+    speak("Gopal, today's date is " + date + ".");
+    statusEl.textContent = "Date command completed.";
+    return true;
+  }
+
+  if (text.includes("who are you") || text.includes("your name")) {
+    speak("I am GOPU, your personal AI assistant, created with your help, Gopal.");
+    statusEl.textContent = "Identity command completed.";
+    return true;
+  }
+
+  return false;
+}
+
+async function askGopu(message) {
+  message = message.trim();
+  if (!message || busy) return;
+
+  busy = true;
+  sendButton.disabled = true;
+  micButton.disabled = true;
+  statusEl.textContent = "GOPU is thinking...";
+  addBubble("user", message);
+  questionEl.value = "";
+
+  try {
+    const response = await fetch("http://127.0.0.1:3000/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        history: conversationHistory.slice(0, -1).slice(-10)
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Request failed");
+
+    const answer = typeof data.reply === "string" && data.reply.trim()
+      ? data.reply.trim()
+      : "Sorry, I could not answer that.";
+    addBubble("assistant", answer);
+    speak(answer);
+    statusEl.textContent = "Ready";
+  } catch (error) {
+    console.error("GOPU chat error:", error);
+    const errorMessage = "I couldn't connect to my local AI. Please check that the GOPU server and Ollama are running.";
+    addBubble("assistant", errorMessage);
+    speak(errorMessage);
+    statusEl.textContent = "Connection error — check server.js and Ollama";
+  } finally {
+    busy = false;
+    sendButton.disabled = false;
+    micButton.disabled = false;
+    questionEl.focus();
+  }
+}
+
+
+
+function runCommandOrAsk(message) {
+  message = message.trim();
+  if (!message || busy) return;
+
+  if (handleSmartCommand(message)) {
+    addBubble("user", message);
+    addBubble("assistant", "Command completed.");
+    questionEl.value = "";
+    return;
+  }
+
+  askGopu(message);
+}
+
+chatForm.addEventListener("submit", event => {
+  event.preventDefault();
+  runCommandOrAsk(questionEl.value);
+});
+
+
+
+const wakeButton = document.getElementById("wakeButton");
+
+let wakeEnabled = false;
+let currentRecognition = null;
+
+function startWakeListening(mode = "wake") {
+  if (!wakeEnabled) return;
+
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    statusEl.textContent =
+      "Wake word unsupported. Try Chrome or Microsoft Edge.";
+    wakeEnabled = false;
+    wakeButton.textContent = "🔊 Enable Hey Gopu";
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  currentRecognition = recognition;
+
+  recognition.lang = "en-IN";
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  statusEl.textContent =
+    mode === "wake" ? "Listening for Hey Gopu..." : "GOPU is listening to your command...";
+
+  recognition.onresult = event => {
+    const transcript = event.results[0][0].transcript.trim();
+    statusEl.textContent = "Heard: " + transcript;
+
+    if (mode === "wake") {
+      const lower = transcript.toLowerCase();
+      const wakeMatch = lower.match(/\bhey[\s,]+gopu\b/i);
+
+      if (!wakeMatch) return;
+
+      // If a command follows the wake word, execute it directly.
+      const command = transcript.slice(
+        wakeMatch.index + wakeMatch[0].length
+      ).trim();
+
+      if (command) {
+        runCommandOrAsk(command);
+      } else {
+        speak("Yes Gopal, I'm listening.");
+      }
+
+      recognition.stop();
+      return;
+    }
+
+    // This is the command spoken after the wake word.
+    runCommandOrAsk(transcript);
+    recognition.stop();
+  };
+
+  recognition.onerror = event => {
+    statusEl.textContent = "Microphone: " + event.error;
+  };
+
+  recognition.onend = () => {
+    if (!wakeEnabled) return;
+
+    if (mode === "wake") {
+      // Keep listening for the wake phrase.
+      setTimeout(() => startWakeListening("wake"), 500);
+    } else {
+      // Return to wake-word mode after one command.
+      setTimeout(() => startWakeListening("wake"), 800);
+    }
+  };
+
+  try {
+    recognition.start();
+  } catch (error) {
+    console.error("Recognition start error:", error);
+  }
+}
+
+wakeButton.addEventListener("click", () => {
+  wakeEnabled = !wakeEnabled;
+
+  if (wakeEnabled) {
+    wakeButton.textContent = "⏹ Disable Hey Gopu";
+    statusEl.textContent = "Starting wake-word listening...";
+    startWakeListening("wake");
+  } else {
+    if (currentRecognition) currentRecognition.stop();
+    wakeButton.textContent = "🔊 Enable Hey Gopu";
+    statusEl.textContent = "Wake-word listening is off.";
+  }
+});
+
+// Keep your normal Talk button working.
+micButton.addEventListener("click", () => {
+  if (wakeEnabled) {
+    statusEl.textContent =
+      "Disable Hey Gopu mode before using the Talk button.";
+    return;
+  }
+
+  const SpeechRecognition =
+    window.SpeechRecognition || window.webkitSpeechRecognition;
+
+  if (!SpeechRecognition) {
+    speak("Speech recognition is not supported in this browser.");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = "en-IN";
+  recognition.continuous = false;
+  recognition.interimResults = false;
+
+  statusEl.textContent = "Listening... Speak now.";
+  micButton.disabled = true;
+
+  recognition.onresult = event => {
+    const transcript = event.results[0][0].transcript;
+    statusEl.textContent = "You said: " + transcript;
+    runCommandOrAsk(transcript);
+  };
+
+  recognition.onerror = event => {
+    statusEl.textContent = "Microphone error: " + event.error;
+  };
+
+  recognition.onend = () => {
+    micButton.disabled = false;
+  };
+
+  try {
+    recognition.start();
+  } catch (error) {
+    console.error(error);
+    statusEl.textContent = "Click Talk and try again.";
+    micButton.disabled = false;
+  }
+});
+  
+
+clearButton.addEventListener("click", () => {
+  if (busy) return;
+  conversationHistory = [];
+  saveHistory();
+  renderHistory();
+  statusEl.textContent = "Chat history cleared.";
+  replyEl.textContent = "Chat cleared, Gopal. Let's start again.";
+});
+
+window.speechSynthesis?.getVoices();
+</script>
+</body>
+</html>
